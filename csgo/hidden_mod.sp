@@ -17,14 +17,14 @@ char entityclass[128];
 
 #pragma newdecls required
 
-#include "hidden_mod2/emitsoundany.inc"
-#include "hidden_mod2/definition.sp"
-#include "hidden_mod2/basic.sp"
-#include "hidden_mod2/warmup.sp"
-#include "hidden_mod2/menu.sp"
-#include "hidden_mod2/events.sp"
-#include "hidden_mod2/skill.sp"
-#include "hidden_mod2/client.sp"
+#include "hidden_mod/emitsoundany.inc"
+#include "hidden_mod/definition.sp"
+#include "hidden_mod/basic.sp"
+#include "hidden_mod/warmup.sp"
+#include "hidden_mod/menu.sp"
+#include "hidden_mod/events.sp"
+#include "hidden_mod/skill.sp"
+#include "hidden_mod/client.sp"
 
 public Plugin myinfo = 
 {
