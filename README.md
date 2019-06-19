@@ -1,4 +1,4 @@
 # Hidden-Mod
-  Counter-Strike custom game mod inspired from Hidden:Source
+  Counter-Strike custom game mod inspired by Hidden:Source
   
   Last updated at May. 2015
