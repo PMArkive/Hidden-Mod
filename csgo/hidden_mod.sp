@@ -32,7 +32,7 @@ public Plugin myinfo =
 	author = "Trostal", 
 	description = "Hidden_mod", 
 	version = PLUGIN_VERSION, 
-	url = "http://cafe.naver.com/sourcemulti"
+	url = "https://github.com/Hatser/Hidden-Mod"
 }
 
 public void OnPluginStart()
