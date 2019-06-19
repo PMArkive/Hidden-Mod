@@ -1,4 +1,4 @@
-#include "hidden_mod2/files.sp"
+#include "hidden_mod/files.sp"
 
 EngineVersion g_Game; // 게임 체크
 
