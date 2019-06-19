@@ -1,53 +1,25 @@
-// 마인갯수 주기
-void GiveLasermine(int client, int amount)
-{
-	if(GetClientTeam(client) == 3 && IsPlayerAlive(client))
-	{
-		skill[client] = MINE;
-		lasermine[client] += amount;
-	}
-}
-// 고스트 나이트비전 스프라이트
-void DrawSpecialSprite(int client, int target)
-{
-	if(IsPlayerAlive(client) && IsPlayerAlive(target))
-	{
-		int value;
-		float pos[3], pos2[3], dir[3], distance;
-		GetClientAbsOrigin(client, pos);
-		GetClientAbsOrigin(target, pos2);
-		pos2[2] += 40.0;
-		MakeVectorFromPoints(pos2, pos, dir);
-		distance = GetVectorDistance(pos, pos2);
-		
-		float alpha = 255.0 * (3000.0 / distance);
-		value = RoundToNearest(alpha);
-		if(distance >= 3000)
-		{
-			value = 255;
-		}
-		else if(distance <= 0)
-		{
-			value = 30;
-		}
-		
-		
-		int  color[4];
-		color[0] = 255;
-		color[1] = 0;
-		color[2] = 0;
-		color[3] = value;
-		
-		TE_SetupBloodSprite(pos2, NULL_VECTOR, color, 40, sprite, sprite);
-		TE_SendToClient(client);
-	}
-}
-// 마인붙이기
+
+/**********************************************************************************************
+레이저 마인
+***********************************************************************************************/
+
+// 레이저 마인 설치 대기시간 완료, 설치 코드 시작.
 void AttachMine(int client)
 {
-	if(lasermine[client] >= 1 && skill[client] == MINE && GetClientTeam(client) == 3)
+	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", 0.0);
+	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
+	SetEntityFlags(client, g_iPlayerEntityFlags[client]);
+	
+	PrintToChat(client, "마인 설치됨!");
+	AttachMine2(client);
+}
+
+// 마인과 레이저 생성
+void AttachMine2(int client)
+{
+	if(g_iLaserMine[client] >= 1 && g_iSkill[client] == MINE && GetClientTeam(client) == 3)
 	{
-		int  current_weapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
+		int current_weapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
 		
 		if(current_weapon != -1)
 		{
@@ -75,10 +47,10 @@ void AttachMine(int client)
 					
 					if(GetVectorLength(distance) <= 70.0 && GetVectorLength(distance) >= 40.0)
 					{
-						if(lasermine[client] > 0)
+						if(g_iLaserMine[client] > 0)
 						{
-							lasermine[client] -= 1;
-							PrintToChat(client, "\x05[Hidden]\x03 남은 레이저마인\x01 :\x04 %i", lasermine[client]);
+							g_iLaserMine[client] -= 1;
+							PrintToChat(client, "\x05[Hidden]\x03 남은 레이저마인\x01 :\x04 %i", g_iLaserMine[client]);
 							
 							float beam_end_pos[3];
 							Handle laser_tracer = TR_TraceRayFilterEx(mine_pos, plane_ang, MASK_SOLID, RayType_Infinite, beam_filter, client);
@@ -99,36 +71,63 @@ void AttachMine(int client)
 							DispatchKeyValueVector(mine_entity, "origin", mine_pos);
 							DispatchKeyValueVector(mine_entity, "angles", plane_ang);
 							DispatchSpawn(mine_entity);
-							mine_owner[mine_entity] = client;
-							RequestFrame(setMineModel, mine_entity);
+							SetEntPropEnt(mine_entity, Prop_Send, "m_hOwnerEntity", client);
+//							mine_owner[mine_entity] = client;
+//							RequestFrame(setMineModel, mine_entity);
 							SetEntityModel(mine_entity, mine_model); // CS:GO DEBUG
 							AcceptEntityInput(mine_entity, "DisableMotion");
-							SetEntData(mine_entity, Collision, 2, 4, true);
-							EmitSoundToAllAny(mine_attach, mine_entity, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, 100, mine_entity, mine_pos, NULL_VECTOR, true, 0.0);
+							SetEntData(mine_entity, g_offsCollision, 2, 4, true);
+							EmitSoundToAllAny(mine_attach, mine_entity, SNDCHAN_ITEM, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, 100, mine_entity, mine_pos, NULL_VECTOR, true, 0.0);
 							
-							int  laser_entity = CreateEntityByName("env_beam");
+							/*
+							int beamcolor[4] = { 0, 255, 0, 128 };
+							TE_SetupBeamPoints(mine_pos, beam_end_pos, g_nBeamEntModel, 0, 0, 0, 0.0, 1.5, 0.0, 1, 0.0, beamcolor, 0); // dont even disappear
+							TE_SendToAll();
+							*/
+							int laser_entity = CreateEntityByName("env_beam");
+							
 							char laser_name[128], input[128];
-							Format(laser_name, sizeof(laser_name), "laser%i%i", client, GetGameTime());
+							
+							// Naming
+							Format(laser_name, sizeof(laser_name), "laser|%i|%.1f", client, GetGameTime());
 							DispatchKeyValue(laser_entity, "targetname", laser_name);
 							DispatchKeyValue(laser_entity, "LightningStart", laser_name);
+							
+							// Positioning
 							DispatchKeyValueVector(laser_entity, "origin", mine_pos);
-							DispatchKeyValue(laser_entity, "renderamt", "150");
+							TeleportEntity(laser_entity, mine_pos, NULL_VECTOR, NULL_VECTOR);
+							SetEntPropVector(laser_entity, Prop_Data, "m_vecEndPos", beam_end_pos);
+
+							// Setting Appearance
+							DispatchKeyValue(laser_entity, "texture", mine_laser);
+							DispatchKeyValue(laser_entity, "decalname", "Bigshot");
+
+							DispatchKeyValue(laser_entity, "renderamt", "70"); // TODO(?): low renderamt, increase when activate
 							DispatchKeyValue(laser_entity, "renderfx", "15");
 							DispatchKeyValue(laser_entity, "rendercolor", "0 255 0 128");
-							DispatchKeyValue(laser_entity, "BoltWidth", "3.0");
-							DispatchKeyValue(laser_entity, "texture", mine_laser);
+							DispatchKeyValue(laser_entity, "BoltWidth", "4.0");
+							
+							// something else..
 							DispatchKeyValue(laser_entity, "life", "0.0");
 							DispatchKeyValue(laser_entity, "StrikeTime", "0");
 							DispatchKeyValue(laser_entity, "TextureScroll", "35");
 							DispatchKeyValue(laser_entity, "TouchType", "3");
+							
+							// in, output
 							Format(input, sizeof(input), "%s,FireUser2,,0,-1", laser_name);
 							DispatchKeyValue(laser_entity, "OnTouchedByEntity", input);
-							SetEntPropVector(laser_entity, Prop_Data, "m_vecEndPos", beam_end_pos);
-							SetEntPropEnt(mine_entity, Prop_Send, "m_hEffectEntity", laser_entity);
+							
 							DispatchSpawn(laser_entity);
-							beam_owner[laser_entity] = mine_entity;
 							SetEntityModel(laser_entity, mine_laser); // CS:GO DEBUG
-							AcceptEntityInput(laser_entity, "TurnOff");
+							
+							// Activate it.
+							ActivateEntity(laser_entity);
+							AcceptEntityInput(laser_entity, "TurnOff"); // TurnOff
+							
+							// Link between mine and laser indirectly.
+							SetEntPropEnt(mine_entity, Prop_Send, "m_hEffectEntity", laser_entity);
+							SetEntPropEnt(laser_entity, Prop_Data, "m_hMovePeer", mine_entity);
+
 							
 							Handle data_pack = CreateDataPack();
 							WritePackCell(data_pack, laser_entity);
@@ -145,17 +144,19 @@ void AttachMine(int client)
 		}
 	}
 }
-
+/*
 public void setMineModel(any entity)
 {
 	DispatchKeyValue(entity, "model", mine_model); // CS:GO DEBUG
 	SetEntityModel(entity, mine_model); // CS:GO DEBUG
+	SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+	SetEntityRenderColor(entity, 255, 255, 255, 255);
 }
-
+*/
 // 마인실행
 void active_mine(int entity)
 {
-	EmitSoundToAllAny(mine_sound2, SOUND_FROM_WORLD, SNDCHAN_AUTO, 90/*SNDLEVEL_SCREAMING*/, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, entity, NULL_VECTOR, NULL_VECTOR, true, 0.0);
+	EmitSoundToAllAny(mine_sound2, SOUND_FROM_WORLD, SNDCHAN_ITEM, 90/*SNDLEVEL_SCREAMING*/, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, entity, NULL_VECTOR, NULL_VECTOR, true, 0.0);
 	AcceptEntityInput(entity, "EnableMotion");
 	int  laser_entity = GetEntPropEnt(entity, Prop_Send, "m_hEffectEntity");
 	AcceptEntityInput(laser_entity, "kill");
@@ -164,7 +165,7 @@ void active_mine(int entity)
 
 public Action DetonateMine(Handle timer, any entity)
 {
-	mine_owner[entity] = 0;
+//	mine_owner[entity] = 0;
 	
 	if(IsValidEntity(entity))
 	{
@@ -182,6 +183,20 @@ public Action DetonateMine(Handle timer, any entity)
 }
 
 // 가짜폭발
+#define EXP_NODAMAGE		(1<<0) // when set, ENV_EXPLOSION will not actually inflict damage
+#define EXP_REPEATABLE		(1<<1) // can this entity be refired?
+#define EXP_NOFIREBALL		(1<<2) // don't draw the fireball
+#define EXP_NOSMOKE			(1<<3) // don't draw the smoke
+#define EXP_NODECAL			(1<<4) // don't make a scorch mark
+#define EXP_NOSPARKS		(1<<5) // don't make sparks
+#define EXP_NOSOUND			(1<<6) // don't play explosion sound.
+#define EXP_RND_ORIENT		(1<<7)	// randomly oriented sprites
+#define EXP_NOFIREBALLSMOKE (1<<8)
+#define EXP_NOPARTICLES 	(1<<9)
+#define EXP_NODLIGHTS		(1<<10)
+#define EXP_NOCLAMPMIN		(1<<11) // don't clamp the minimum size of the fireball sprite
+#define EXP_NOCLAMPMAX		(1<<12) // don't clamp the maximum size of the fireball sprite
+#define EXP_SURFACEONLY		(1<<13) // don't damage the player if he's underwater.
 void make_fake_explosion(float pos[3])
 {
 	int  boom = CreateEntityByName("env_explosion");
@@ -204,24 +219,10 @@ void make_fake_explosion(float pos[3])
 		AcceptEntityInput(boom, "Explode");
 		AcceptEntityInput(boom, "kill");
 		
-		EmitSoundToAllAny(mine_sound, SOUND_FROM_WORLD, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, -1, pos, NULL_VECTOR, true, 0.0);
+		EmitSoundToAllAny(mine_sound, SOUND_FROM_WORLD, SNDCHAN_ITEM, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, -1, pos, NULL_VECTOR, true, 0.0);
 	}
 }
 
-// 레이져마인
-public Action attach_mine(Handle timer, any client)
-{
-	if(mine_attaching[client] == true)
-	{
-		SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", 0.0);
-		SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
-		SetEntityFlags(client, client_flag[client]);
-		
-		AttachMine(client);
-		
-	}
-	mine_attach_timer[client] = INVALID_HANDLE;
-}
 // 트레이서
 public bool function_filter(int entity, int mask, any client)
 {
@@ -245,10 +246,11 @@ public bool beam_filter(int entity, int mask, any client)
 public Action start_beam(Handle timer, Handle data_pack)
 {
 	ResetPack(data_pack);
-	int  laser_entity = ReadPackCell(data_pack);
+	int laser_entity = ReadPackCell(data_pack);
 	
-	if(laser_entity != -1)
+	if(IsValidEntity(laser_entity))
 	{
+		DispatchKeyValue(laser_entity, "renderamt", "225");
 		AcceptEntityInput(laser_entity, "TurnOn");
 		float sound_pos[3], beam_end_pos[3];
 		GetEntPropVector(laser_entity, Prop_Send, "m_vecOrigin", sound_pos);
@@ -257,7 +259,7 @@ public Action start_beam(Handle timer, Handle data_pack)
 		beam_end_pos[1] = ReadPackFloat(data_pack);
 		beam_end_pos[2] = ReadPackFloat(data_pack);
 		
-		EmitSoundToAllAny(mine_active, laser_entity, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, 100, laser_entity, beam_end_pos, NULL_VECTOR, true, 0.0);
+		EmitSoundToAllAny(mine_active, laser_entity, SNDCHAN_ITEM, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, 100, laser_entity, beam_end_pos, NULL_VECTOR, true, 0.0);
 	}
 	
 	CloseHandle(data_pack);
@@ -266,11 +268,11 @@ public Action start_beam(Handle timer, Handle data_pack)
 public void laser_hook(const char[] output, int entity, int activator, float delay)
 {
 	bool keep = true;
-	int  mine_entity = beam_owner[entity];
-	
+//	int mine_entity = beam_owner[entity];
+	int mine_entity = GetEntPropEnt(entity, Prop_Data, "m_hMovePeer");	
 	if(mine_entity != -1)
 	{
-		int  client = mine_owner[mine_entity];
+		int client = GetEntPropEnt(mine_entity, Prop_Send, "m_hOwnerEntity");
 		
 		if(GetClientTeam(client) != GetClientTeam(activator))
 		{
@@ -290,6 +292,32 @@ public void laser_hook(const char[] output, int entity, int activator, float del
 	}
 }
 
+
+/**********************************************************************************************
+조명탄 및 기타 수류탄 기능
+***********************************************************************************************/
+void GiveChemlight(int client)
+{
+	if(IsClientInGame(client) && IsPlayerAlive(client))
+	{
+		if(GetFlashbangCount(client) < 2)
+		{
+			GiveClientItem(client, "weapon_flashbang");
+		}
+	}
+}
+
+void GiveMolotov(int client)
+{
+	if(IsClientInGame(client) && IsPlayerAlive(client))
+	{
+		if(GetMolotovCount(client) < 10)
+		{
+			GiveClientItem(client, "weapon_molotov");
+		}
+	}
+}
+
 public int OnEntityCreated(int entity, const char[] classname)
 {
 	if(entity <= 0)
@@ -299,7 +327,7 @@ public int OnEntityCreated(int entity, const char[] classname)
 	{
 //		SetEntData(entity, Collision, 2, 1, true);
 		SetEntProp(entity, Prop_Send, "m_CollisionGroup", 2);
-		CreateTimer(0.0, FbProjectile, entity, TIMER_FLAG_NO_MAPCHANGE);
+		RequestFrame(FbProjectile, entity);
 	}
 	
 	if(StrEqual(classname, "smokegrenade_projectile", false))
@@ -313,18 +341,22 @@ public int OnEntityCreated(int entity, const char[] classname)
 	}
 }
 
-public Action FbProjectile(Handle timer, any entity)
+public void FbProjectile(any entity)
 {
+	char classname[64];
+	GetEdictClassname(entity, classname, sizeof(classname));
+	if (!StrEqual(classname, "flashbang_projectile", false))	return;
+	
 	SetEntProp(entity, Prop_Data, "m_nNextThinkTick", -1);
 	
-	int  client = GetEntDataEnt2(entity, offset_thrower);
+	int client = GetEntPropEnt(entity, Prop_Data, "m_hThrower"); // GetEntDataEnt2(entity, offset_thrower);
 	
 	if(client <= 0)
-		return Plugin_Handled;
+		return;
 	
-	if(0 < client <= MaxClients)
+	if(0 < client && client <= MaxClients)
 	{
-		if(skill[client] == FLASH)
+		if(g_iSkill[client] == FLASH)
 		{
 			char color[64], targetname[128];
 			Format(color, sizeof(color), "%i %i %i 50", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255));
@@ -333,7 +365,7 @@ public Action FbProjectile(Handle timer, any entity)
 			if(!IsValidEntity(light))
 			{
 				LogError("Failed to create 'light_dynamic'");
-				return Plugin_Handled;
+				return;
 			}
 				
 			Format(targetname, sizeof(targetname), "%i flash:%i light:%i", client, entity, light);
@@ -379,7 +411,6 @@ public Action FbProjectile(Handle timer, any entity)
 	{
 		CreateTimer(0.0, remove_light, entity, TIMER_FLAG_NO_MAPCHANGE);
 	}
-	return Plugin_Continue;
 }
 
 public Action remove_light(Handle timer, any entity)
@@ -390,249 +421,39 @@ public Action remove_light(Handle timer, any entity)
 	}
 }
 
-void GiveAdrenaline(int client, int amount)
-{
-	if(skill[client] == ADRENALINE)
-	{
-		adrenaline[client] += amount;
-	}
-}
+/**********************************************************************************************
+아드레날린
+***********************************************************************************************/
 
 void UseAdrenaline(int client)
 {
-	if(adrenaline[client] > 0)
+	if(g_iAdrenaline[client] > 0)
 	{
-		is_using_adrenaline[client] = true;
-		adrenaline[client] -= 1;
-		PrintToChat(client, "\x05[Hidden]\x03 남은 아드레날린\x01 :\x04 %i", adrenaline[client]);
+		g_bUsingAdrenaline[client] = true;
+		g_iAdrenaline[client] -= 1;
+		PrintToChat(client, "\x05[Hidden]\x03 남은 아드레날린\x01 :\x04 %i", g_iAdrenaline[client]);
 		
 		SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", 1.5);
 		SetEntityGravity(client, 0.8);
-		EmitSoundToAllAny(use_adrenaline, client, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_CHANGEVOL, 1.0, SNDPITCH_NORMAL, client, NULL_VECTOR, NULL_VECTOR, true, 0.0);
-		adrenaline_timer[client] = CreateTimer(25.0, reset_adrenaline, client, TIMER_FLAG_NO_MAPCHANGE);
+		EmitSoundToAllAny(use_adrenaline, client, SNDCHAN_BODY, SNDLEVEL_NORMAL, SND_CHANGEVOL, 1.0, SNDPITCH_NORMAL, client, NULL_VECTOR, NULL_VECTOR, true, 0.0);
+		g_flAdrenalineEndTime[client] = GetGameTime() + ADRENALINE_TIME;
+//		adrenaline_timer[client] = CreateTimer(25.0, reset_adrenaline, client, TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
 
-public Action reset_adrenaline(Handle timer, any client)
+void TerminateAdrenaline(int client)
 {
-	if(is_using_adrenaline[client] == true)
-	{
-		is_using_adrenaline[client] = false;
-		SetEntityGravity(client, 1.0);
-		SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", 1.0);
-		if(adrenaline[client] > 0 && IsPlayerAlive(client))
-		{
-			PrintToChat(client, "\x05[Hidden]\x03 다시 \x04아드레날린\x03을 사용할 수 있습니다.");
-			EmitSoundToAllAny(end_adrenaline, client, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_CHANGEVOL, 1.0, SNDPITCH_NORMAL, client, NULL_VECTOR, NULL_VECTOR, true, 0.0);
-		}
-		adrenaline_timer[client] = INVALID_HANDLE;
-	}
-}
-
-public Action SgProjectile(Handle timer, any entity)
-{
-	if(!IsValidEntity(entity))
-		return;
+	g_bUsingAdrenaline[client] = false;
+	g_flAdrenalineEndTime[client] = 0.0;
 	
-	SetEntityModel(entity, poison_model); // CS:GO DEBUG
-	int client = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	PrintToChat(client, "\x05[Hidden]\x03 아드레날린의 효력이 다했습니다.");
+	EmitSoundToAllAny(end_adrenaline, client, SNDCHAN_BODY, SNDLEVEL_NORMAL, SND_CHANGEVOL, 1.0, SNDPITCH_NORMAL, client, NULL_VECTOR, NULL_VECTOR, true, 0.0);
 	
-	if(client == -1 || !IsClientInGame(client) || GetClientTeam(client) != 2)
+	if(g_iAdrenaline[client] > 0 && IsPlayerAlive(client))
 	{
-		CreateTimer(0.0, remove_light, entity, TIMER_FLAG_NO_MAPCHANGE);
-		return;
+		PrintToChat(client, "\x05[Hidden]\x03 다시 \x04아드레날린\x03을 사용할 수 있습니다.");
 	}
 	
-	// Save that smoke in our array
-	Handle hGrenade = CreateArray();
-	PushArrayCell(hGrenade, GetClientUserId(client));
-	PushArrayCell(hGrenade, GetClientTeam(client));
-	PushArrayCell(hGrenade, entity);
-	PushArrayCell(smoke_grenades, hGrenade);
-}
-
-
-public Action SgParticles(Handle timer, any entity)
-{
-	float fOrigin[3], fOriginSmoke[3];
-	GetEntPropVector(entity, Prop_Send, "m_vecOrigin", fOrigin);
-	
-	int iSize = GetArraySize(smoke_grenades);
-	int iGrenade;
-	Handle hGrenade;
-	for(int i=0; i<iSize; i++)
-	{
-		hGrenade = GetArrayCell(smoke_grenades, i);
-		iGrenade = GetArrayCell(hGrenade, GRENADE_PROJECTILE);
-		GetEntPropVector(iGrenade, Prop_Send, "m_vecOrigin", fOriginSmoke);
-		if(fOrigin[0] == fOriginSmoke[0] && fOrigin[1] == fOriginSmoke[1] && fOrigin[2] == fOriginSmoke[2])
-		{
-			PushArrayCell(hGrenade, entity);
-			
-			char sBuffer[64];
-			int  iEnt = CreateEntityByName("light_dynamic");
-			Format(sBuffer, sizeof(sBuffer), "smokelight_%d", entity);
-			DispatchKeyValue(iEnt,"targetname", sBuffer);
-			Format(sBuffer, sizeof(sBuffer), "%f %f %f", fOriginSmoke[0], fOriginSmoke[1], fOriginSmoke[2]);
-			DispatchKeyValue(iEnt, "origin", sBuffer);
-			DispatchKeyValue(iEnt, "angles", "-90 0 0");
-			DispatchKeyValue(iEnt, "_light", poison_color);
-			//DispatchKeyValue(iEnt, "_inner_cone","-89");
-			//DispatchKeyValue(iEnt, "_cone","-89");
-			DispatchKeyValue(iEnt, "pitch","-90");
-			DispatchKeyValue(iEnt, "distance","256");
-			DispatchKeyValue(iEnt, "spotlight_radius","96");
-			DispatchKeyValue(iEnt, "brightness","3");
-			DispatchKeyValue(iEnt, "style","6");
-			DispatchKeyValue(iEnt, "spawnflags","1");
-			DispatchSpawn(iEnt);
-			AcceptEntityInput(iEnt, "DisableShadow");
-			
-			float fFadeStartTime = GetEntPropFloat(entity, Prop_Send, "m_FadeStartTime");
-			float fFadeEndTime = GetEntPropFloat(entity, Prop_Send, "m_FadeEndTime");
-			
-			char sAddOutput[64];
-			// Remove the light when the smoke vanished
-			Format(sAddOutput, sizeof(sAddOutput), "OnUser1 !self:kill::%f:1", fFadeEndTime);
-			SetVariantString(sAddOutput);
-			AcceptEntityInput(iEnt, "AddOutput");
-			// Turn the light off, 1 second before the smoke it completely vanished
-			Format(sAddOutput, sizeof(sAddOutput), "OnUser1 !self:TurnOff::%f:1", fFadeStartTime+4.0);
-			SetVariantString(sAddOutput);
-			AcceptEntityInput(iEnt, "AddOutput");
-			// Don't light any players or models, when the smoke starts to clear!
-			Format(sAddOutput, sizeof(sAddOutput), "OnUser1 !self:spawnflags:3:%f:1", fFadeStartTime);
-			SetVariantString(sAddOutput);
-			AcceptEntityInput(iEnt, "AddOutput");
-			AcceptEntityInput(iEnt, "FireUser1");
-			
-			PushArrayCell(hGrenade, iEnt);
-			
-			Handle hTimer = CreateTimer(fFadeEndTime, Timer_RemoveSmoke, entity, TIMER_FLAG_NO_MAPCHANGE);
-			PushArrayCell(hGrenade, hTimer);
-			
-			// Only start dealing damage, if we really want to. Just color it otherwise.
-			Handle hTimer2 = INVALID_HANDLE;
-			if(poison_damage > 0.0)
-				hTimer2 = CreateTimer(poison_second, Timer_CheckDamage, EntIndexToEntRef(entity), TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
-			PushArrayCell(hGrenade, hTimer2);
-			
-			break;
-		}
-	}
-}
-
-// Remove the poison effect, 2 seconds before the smoke is completely vanished
-public Action Timer_RemoveSmoke(Handle timer, any entity)
-{
-	// Get the grenade array with this entity index
-	int  iSize = GetArraySize(smoke_grenades);
-	int iGrenade = -1;
-	Handle hGrenade;
-	for(int i=0; i<iSize; i++)
-	{
-		hGrenade = GetArrayCell(smoke_grenades, i);
-		if(GetArraySize(hGrenade) > 3)
-		{
-			iGrenade = GetArrayCell(hGrenade, GRENADE_PARTICLE);
-			// This is the right grenade
-			// Remove it
-			if(iGrenade == entity)
-			{
-				// Remove the smoke in 3 seconds
-				AcceptEntityInput(iGrenade, "TurnOff");
-				char sOutput[64];
-				Format(sOutput, sizeof(sOutput), "OnUser1 !self:kill::3.0:1");
-				SetVariantString(sOutput);
-				AcceptEntityInput(iGrenade, "AddOutput");
-				AcceptEntityInput(iGrenade, "FireUser1");
-				
-				Handle hTimer = GetArrayCell(hGrenade, GRENADE_DAMAGETIMER);
-				if(hTimer != INVALID_HANDLE)
-					KillTimer(hTimer);
-				
-				RemoveFromArray(smoke_grenades, i);
-				break;
-			}
-		}
-	}
-	
-	return Plugin_Stop;
-}
-
-// Do damage every seconds to players in the smoke
-public Action Timer_CheckDamage(Handle timer, any entityref)
-{
-	int  entity = EntRefToEntIndex(entityref);
-	if(entity == INVALID_ENT_REFERENCE)
-		return Plugin_Continue;
-	
-	// Get the grenade array with this entity index
-	int  iSize = GetArraySize(smoke_grenades);
-	int iGrenade = -1;
-	Handle hGrenade;
-	for(int i=0; i<iSize; i++)
-	{
-		hGrenade = GetArrayCell(smoke_grenades, i);
-		if(GetArraySize(hGrenade) > 3)
-		{
-			iGrenade = GetArrayCell(hGrenade, GRENADE_PARTICLE);
-			if(iGrenade == entity)
-				break;
-		}
-	}
-	
-	if(iGrenade == -1)
-		return Plugin_Continue;
-	
-	int  userid = GetArrayCell(hGrenade, GRENADE_USERID);
-	
-	// Don't do anything, if the client who's thrown the grenade left.
-	int  client = GetClientOfUserId(userid);
-	if(!client)
-		return Plugin_Continue;
-	
-	float fSmokeOrigin[3], fOrigin[3];
-	GetEntPropVector(iGrenade, Prop_Send, "m_vecOrigin", fSmokeOrigin);
-	
-	int  iGrenadeTeam = GetArrayCell(hGrenade, GRENADE_TEAM);
-	bool bFriendlyFire = GetConVarBool(mp_friendlyfire);
-	for(int i=1;i<=MaxClients;i++)
-	{
-		if(IsClientInGame(i) && IsPlayerAlive(i) && (bFriendlyFire || GetClientTeam(i) != iGrenadeTeam))
-		{
-			GetClientAbsOrigin(i, fOrigin);
-			if(GetVectorDistance(fSmokeOrigin, fOrigin) <= 220)
-				SDKHooks_TakeDamage(i, iGrenade, client, poison_damage, DMG_POISON, -1, NULL_VECTOR, fSmokeOrigin);
-		}
-	}
-	
-	return Plugin_Continue;
-}
-
-void ResetSmoke(bool resetLight=false)
-{
-	int  iSize = GetArraySize(smoke_grenades);
-	int iLight = -1;
-	Handle hGrenade, hTimer;
-	for(int i=0; i<iSize; i++)
-	{
-		hGrenade = GetArrayCell(smoke_grenades, i);
-		if(GetArraySize(hGrenade) > 3)
-		{
-			hTimer = GetArrayCell(hGrenade, GRENADE_REMOVETIMER);
-			KillTimer(hTimer);
-			hTimer = GetArrayCell(hGrenade, GRENADE_DAMAGETIMER);
-			if(hTimer != INVALID_HANDLE)
-				KillTimer(hTimer);
-			if(resetLight)
-			{
-				iLight = GetArrayCell(hGrenade, GRENADE_LIGHT);
-				if(iLight > 0 && IsValidEntity(iLight))
-					AcceptEntityInput(iLight, "kill");
-			}
-		}
-		CloseHandle(hGrenade);
-	}
-	ClearArray(smoke_grenades);
+	SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", 1.0);
+	SetEntityGravity(client, 1.0);	
 }

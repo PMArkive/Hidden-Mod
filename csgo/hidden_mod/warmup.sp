@@ -1,105 +1,126 @@
-#define Warmup_Time 40
-
-Handle g_Cvaractive;
-bool IsWarmup;
-int g_time;
-int timesrepeated;
-Handle g_warmuptimer;
-
-public void Warmup_OnPluginStart()
+public Action BlockWarmupNoticeTextMsg(UserMsg msg_id, Handle pb, const int[] players, int playersNum, bool reliable, bool init) 
 {
-	g_Cvaractive = CreateConVar("sm_warmupround_active", "0", "이 값을 수정하지 마십시오 - 라운드 준비 상황 체크에 사용됩니다.", FCVAR_DONTRECORD);
+	char buffer[40]; 
+	PbReadString(pb, "params", buffer, sizeof(buffer), 0);
 	
-	g_time = Warmup_Time;
-	timesrepeated = g_time;
-	IsWarmup = false;
-}
-
-public void Warmup_OnAutoConfigsBuffered(int warmupTime)
-{
-	if(!IsWarmup)
-	{
-		ClearTimer(g_warmuptimer);
-		SetConVarBool(g_Cvaractive, true, false, false);
-		SetConVarInt(FindConVar("mp_ignore_round_win_conditions"), 1);
-		timesrepeated = warmupTime;
-		IsWarmup = true;
-		g_warmuptimer = CreateTimer(1.0, Countdown, _, TIMER_REPEAT);
-	}
-}
-
-public Action CancelWarmup()
-{
-	SetConVarBool(g_Cvaractive, false, false, false);
-	g_warmuptimer = INVALID_HANDLE;
-	IsWarmup = false;
+//	PrintToServer("OMG! IT'S TEXT MSG!, %i\n%s", PbReadInt(pb, "msg_dst"), buffer);
 	
-	if(GetTeamClientCount(2) + GetTeamClientCount(3) > 1)
+	if(PbReadInt(pb, "msg_dst") == 3) 
 	{
-		SetConVarInt(FindConVar("mp_ignore_round_win_conditions"), 0);
-	//	SwapTeam(CS_TEAM_T, CS_TEAM_CT);
-		CS_TerminateRound(1.0, CSRoundEnd_GameStart);
-	}
-	else
-	{
-		PrintHintTextToAll("인원이 부족하므로 게임을 시작할 수 없습니다.");
-		PrintToChatAll("\x05[Hidden]\x03 인원이 부족하므로 게임을 시작할 수 없습니다.");
-	}
-}
-
-stock void SwapTeam(int oldteam, int newteam)
-{
-	decl team;
-	for(int i=1;i<=MaxClients;i++)
-	{
-		if(IsClientInGame(i))
+		// 준비시간이 다 되면 게임이 시작된다는 메세지를 없앤다.
+		if(StrEqual(buffer, "#SFUI_Notice_Match_Will_Start_Chat", false)) 
 		{
-			team = GetClientTeam(i);
-			if(team == CS_TEAM_CT && (oldteam == CS_TEAM_CT || oldteam == 0))
+			if(GetPlayerCount() < 2)
 			{
-				CS_SwitchTeam(i, newteam);
-			} else if(team == CS_TEAM_T && (oldteam == CS_TEAM_T || oldteam == 0)) {
-				
-				if(i != ghost)
-					CS_SwitchTeam(i, newteam);
+				return Plugin_Handled;
+			}
+		} 
+	}
+	return Plugin_Continue;
+}
+
+bool g_bRestartChecked = false;
+
+ConVar g_cvarMpWarmupTime;
+ConVar g_cvarMpRoundTime;
+
+public void OnGameFrame()
+{
+	// 준비 시간일 때
+	if(IsWarmupPeriod())
+	{
+		if(GetPlayerCount() < 2)
+		{
+			PrintHintTextToAll("최소 %i명 이상이어야 플레이가 가능합니다.", 2);
+			SetWarmupStartTime(GetGameTime()+0.5);
+			return;
+		}
+			
+		// 채택!
+		if(GetRestartRoundTime() > 0.0)
+		{
+			if(!g_bRestartChecked)
+			{
+				if(GetWarmupLeftTime() < 0.0)
+				{
+					g_bRestartChecked = true;
+					PrintToChatAll("준비 시간 종료! %i초 뒤 게임 시작!", RoundToNearest(GetRestartRoundTime()-GetGameTime()));
+					SetRound();
+					FilterWrongPlayerTeam(true);
+				}
+			}
+		}
+		else
+		{
+			if(g_bRestartChecked)	g_bRestartChecked = false;
+		}
+		PrintHintTextToAll("지금은 준비 시간입니다: %.1f", GetWarmupLeftTime());
+	}
+	else // 준비 시간이 아닐 때
+	{
+		if(GetRoundLeftTime() <= 0)
+		{
+			if(!g_bRoundEnded)
+			{
+				CS_TerminateRound(GetConVarFloat(FindConVar("mp_round_restart_delay")), CSRoundEnd_CTWin);
+				g_bRoundEnded = true;
 			}
 		}
 	}
 }
 
-public Action Countdown(Handle timer)
+stock bool IsWarmupPeriod()
 {
-	if (IsWarmup)
-	{
-		if (timesrepeated >= 1)
-		{
-			PrintHintTextToAll("라운드 준비중...\n%i 초 후 게임이 시작됩니다.", timesrepeated);
-			timesrepeated--;
-		}
-		else if (timesrepeated == 0)
-		{
-			PrintHintTextToAll("라운드 준비중...\n잠시 후 게임이 시작됩니다.", timesrepeated);
-			timesrepeated = g_time;
-			CancelWarmup();
-			return Plugin_Stop;
-		}
-	}
-	else
-	{
-		timesrepeated = g_time;
-		return Plugin_Stop;
-	}
-	return Plugin_Continue;
+	return view_as<bool>(GameRules_GetProp("m_bWarmupPeriod"));
 }
 
-public void Warmup_OnDeath(int client)
+stock float GetWarmupStartTime()
 {
-	if (IsWarmup)
-		CreateTimer(0.5, SpawnPlayer, client);
+	return GameRules_GetPropFloat("m_fWarmupPeriodStart");
 }
 
-public Action SpawnPlayer(Handle timer, any client)
+stock float GetWarmupEndTime()
 {
-	if (ConnectionCheck(client))
-		CS_RespawnPlayer(client);
+//	return GameRules_GetPropFloat("m_fWarmupPeriodEnd");
+	return (GetWarmupStartTime() + GetConVarFloat(g_cvarMpWarmupTime));
+}
+
+stock float GetWarmupLeftTime()
+{
+	return (GetWarmupEndTime() - GetGameTime());
+}
+
+stock void SetWarmupStartTime(float time)
+{
+	GameRules_SetPropFloat("m_fWarmupPeriodStart", time, _, true);
+}
+
+stock void SetWarmupEndTime(float time)
+{
+	GameRules_SetPropFloat("m_fWarmupPeriodEnd", time, _, true);
+}
+
+stock void RestartRound(float time)
+{
+	GameRules_SetPropFloat("m_flRestartRoundTime", time);
+}
+
+stock float GetRestartRoundTime()
+{
+	return GameRules_GetPropFloat("m_flRestartRoundTime");
+}
+
+stock float GetRoundStartTime()
+{
+	return GameRules_GetPropFloat("m_fRoundStartTime");
+}
+
+stock float GetRoundLeftTime()
+{
+	return ((GetConVarFloat(g_cvarMpRoundTime)*60) - (GetGameTime() - GetRoundStartTime()));
+}
+
+stock int GetPlayerCount()
+{
+	return (GetTeamClientCount(CS_TEAM_T) + GetTeamClientCount(CS_TEAM_CT));
 }

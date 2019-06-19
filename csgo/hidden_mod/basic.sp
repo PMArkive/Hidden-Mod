@@ -1,82 +1,8 @@
-RemoveRadar// 라운드 안끝내기
-void RemoveAllProject()
-{
-	char classname[128];
-	
-	for(int  i = MaxClients; i < GetMaxEntities(); i++)
-	{
-		if(IsValidEdict(i))
-		{
-			GetEdictClassname(i, classname, sizeof(classname));
-			
-			if(StrEqual("func_buyzone", classname) || StrEqual("func_bomb_target", classname)
-			|| StrEqual("info_bomb_target", classname) || StrEqual("func_hostage_rescue", classname)
-			|| StrEqual("func_escapezone", classname) || StrEqual("env_sun", classname))
-			{
-				AcceptEntityInput(i, "kill");
-			}
-		}
-	}
-}
-void RemoveHostage()
-{
-	char classname[128];
-	for(int  i = MaxClients; i < GetMaxEntities(); i++)
-	{
-		if(IsValidEntity(i))
-		{
-			GetEdictClassname(i , classname, sizeof(classname));
-			
-			if(StrEqual(classname, "hostage_entity"))
-			{
-				AcceptEntityInput(i, "kill");
-			}
-		}
-	}
-}
-// 무기없애기
-void RemoveAllGroundWeapons()
-{
-	int  ent = -1
-	while((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
-	{
-		if(GetEntPropEnt(ent ,Prop_Send, "m_hOwnerEntity") == -1)
-		{
-			AcceptEntityInput(ent, "kill");
-		}
-	}	
-}
-// 레이더 숨기기
-void HideAllPlayerRadar()
-{
-	int  player_manager = FindEntityByClassname(-1, "cs_player_manager");
-	SDKHook(player_manager, SDKHook_ThinkPost, OnThinkPost_HideRadar);
-	/*
-	SDKHook(player_manager, SDKHook_PreThinkPost, OnThinkPost_HideRadar);
-	SDKHook(player_manager, SDKHook_Think, OnThinkPost_HideRadar);
-	SDKHook(player_manager, SDKHook_PostThink, OnThinkPost_HideRadar);
-	SDKHook(player_manager, SDKHook_PostThinkPost, OnThinkPost_HideRadar);
-	*/
-}
-
-public void OnThinkPost_HideRadar(int entity)
-{
-	int  offset = FindSendPropOffs("CCSPlayerResource", "m_bPlayerSpotted");
-	if (offset == -1) return;
-	
-	for(int  target = 0; target < MaxClients; target++)
-	{
-		SetEntData(entity, offset + target, false, 4, true);
-	}
-}
-
-// 환경요소 설정
 void SetEnvironment()
 {
-	// 빛
-	char style[8];
-	GetConVarString(hm_env_light, style, sizeof(style));
-	SetLightStyle(0, style);
+	// 맵 밝기
+	SetLightStyle(0, LIGHT_STYLE);
+	
 	// 안개
 	int  dist = 3;
 	int  end_dist = 1024;
@@ -143,102 +69,160 @@ void SetEnvironment()
 	// 스카이박스
 	SetConVarString(FindConVar("sv_skyname"), "embassy"); //CS:GO DEBUG
 	
-	Team_SetName(CS_TEAM_T, "Subject 617");
-	Team_SetName(CS_TEAM_CT, "I.R.I.S.");
+	SetCascadeLightShadow();
+	
+	CleanUp(false, true, true);
+	
+	// 테러리스트 팀 이름
+	SetConVarString(FindConVar("mp_teamname_2"), "Subject 617, The Hidden");
+	// 대-테러리스트 팀 이름
+	// Infinitum Research Intercept Squad, I.R.I.S.
+	SetConVarString(FindConVar("mp_teamname_1"), "I.R.I.S.");
 }
 
-// 콘바 바꾸기
-void ChangeConVar()
+void SetCascadeLightShadow(bool killCascadeLight=true)
 {
-	SetConVarInt(FindConVar("mp_limitteams"), 0);
-	SetConVarInt(FindConVar("mp_autoteambalance"), 0);
-	SetConVarInt(FindConVar("mp_forcecamera"), 0);
-	SetConVarInt(FindConVar("mp_footsteps"), 1);
-	SetConVarInt(FindConVar("mp_flashlight"), 0);
-	SetConVarInt(FindConVar("sv_turbophysics"), 0);
-	SetConVarInt(FindConVar("phys_pushscale"), 0);
-	SetConVarInt(FindConVar("mp_playerid"), 1);
-	SetConVarInt(FindConVar("sv_enablebunnyhopping"), 0);
-	SetConVarFloat(FindConVar("mp_roundtime"), ROUNDTIME);
-//	SetConVarInt(FindConVar("mp_maxrounds"), 10);
-//	SetConVarInt(FindConVar("mp_show_voice_icons"), 0);
-	SetConVarInt(FindConVar("mp_teamoverride"), 0);
-	SetConVarInt(FindConVar("mp_teams_unbalance_limit"), 0);
-//	SetConVarInt(FindConVar("sv_hudhint_sound"), 0);
-}
-
-// 프리캐시
-void PrecacheAll()
-{
-	// 레이저마인 모델,사운드
-	PrecacheModel(mine_model);
-	PrecacheModel(mine_laser, true);
-	PrecacheModel(hidden_model, true);
-	PrecacheSoundAny(mine_attach, true);
-	PrecacheSoundAny(mine_active, true);
-	PrecacheSoundAny(mine_sound, true);
-	
-	Beam_Ents_Model = PrecacheModel(mine_laser, true);
-	
-	// 나이트비전
-	sprite = PrecacheModel(sprite_to_precache, true);
-	PrecacheModel(overlay_to_precache, true);
-	PrecacheSoundAny("ambient/office/button1.wav", true);
-	PrecacheSoundAny("weapons/zoom.wav", true);
-	// 히든 사운드 다운로드 설정
-	for(int i = 0; i < sizeof(sound_file_to_download); i++)
+	int env_cascade_light = GetEnvCascadeLight(killCascadeLight);
+	if(!killCascadeLight)
 	{
-		PrecacheSoundAny(sound_file_to_download[i], true);
-		char path[256];
-		Format(path, sizeof(path), "sound/%s", sound_file_to_download[i]);
-		AddFileToDownloadsTable(path);
+		SetEntProp(env_cascade_light, Prop_Send, "m_bUseLightEnvAngles", false);
+		float sd[3];
+		sd[0] = 0.0;
+		sd[1] = 0.0;
+		sd[2] = 310.0;
+		SetEntPropVector(env_cascade_light, Prop_Send, "m_shadowDirection", sd);
 	}
-	// 히든 모델 다운로드 설정
-	for(int i = 0; i < sizeof(model_file_to_download); i++)
+	else
 	{
-		if (StrContains("", ".mdl", false) != -1)
+		if(IsValidEntity(env_cascade_light))
+			AcceptEntityInput(env_cascade_light, "Kill");
+	}
+}
+
+int GetEnvCascadeLight(bool killCascadeLight)
+{
+	int ent = -1;
+	while((ent = FindEntityByClassname(ent, "env_cascade_light")) != -1)
+	{
+		return ent;
+	}
+	
+	// Some maps don't have a env_cascade_light entity, so we create one.
+	return killCascadeLight?-1:CreateEntityByName("env_cascade_light");
+}
+
+void CleanUp(bool items, bool subjects, bool hostage)
+{
+	int maxent = GetMaxEntities();
+	char name[64];
+	for (int i=GetMaxClients();i<maxent;i++)
+	{
+		if ( IsValidEdict(i) && IsValidEntity(i) )
 		{
-			PrecacheModel(model_file_to_download[i]);
+			GetEdictClassname(i, name, sizeof(name));
+			
+			// 주인없는 무기 혹은 장비삭제(땅에 떨어진 물체)
+			if (items && ( StrContains(name, "weapon_,item_") != -1 && IsValidEdict(GetEntPropEnt(i, Prop_Data, "m_hOwnerEntity")) ))
+			{
+				RemoveEdict(i);
+				continue;
+			}
+			
+			// 바이존, 폭파지점, 인질 구출 등의 목적 오브젝트 삭제
+			if (subjects && ((StrEqual("func_buyzone", name) || StrEqual("func_bomb_target", name)
+			|| StrEqual("info_bomb_target", name) || StrEqual("func_hostage_rescue", name)
+			|| StrEqual("func_escapezone", name))))
+			{
+				RemoveEdict(i);
+				continue;
+			}
+			
+			// 인질엔티티 삭제
+			if(hostage && StrEqual(name, "hostage_entity"))
+			{
+				RemoveEdict(i);
+				continue;
+			}
 		}
-		char path[256];
-		Format(path, sizeof(path), "%s", model_file_to_download[i]);
-		AddFileToDownloadsTable(model_file_to_download[i]);
 	}
-	// 라운드 시작, 끝 사운드 다운로드 설정
-	for(int i = 0; i < sizeof(round_start_sound); i++)
-	{
-		PrecacheSoundAny(round_start_sound[i], true);
-		char path[256];
-		Format(path, sizeof(path), "sound/%s", round_start_sound[i]);
-		AddFileToDownloadsTable(path);
-	}
-	for(int i = 0; i < sizeof(round_end_sound); i++)
-	{
-		PrecacheSoundAny(round_end_sound[i], true);
-		char path[256];
-		Format(path, sizeof(path), "sound/%s", round_end_sound[i]);
-		AddFileToDownloadsTable(path);
-	}
-	// IRIS, 히든 도발 사운드 다운로드 설정
-	for(int i = 0; i < sizeof(iris_taunt); i++)
-	{
-		PrecacheSoundAny(iris_taunt[i], true);
-		char path[256];
-		Format(path, sizeof(path), "sound/%s", iris_taunt[i]);
-		AddFileToDownloadsTable(path);
-	}
-	for(int i = 0; i < sizeof(hidden_taunt); i++)
-	{
-		PrecacheSoundAny(hidden_taunt[i], true);
-		char path[256];
-		Format(path, sizeof(path), "sound/%s", hidden_taunt[i]);
-		AddFileToDownloadsTable(path);
-	}	
 }
 
-public void RemoveRadar(any client)
+stock bool ClearTimer(Handle &hTimer, bool autoClose=true)
 {
-	if(g_Game == Engine_CSGO) SetEntProp(client, Prop_Send, "m_iHideHUD", GetEntProp(client, Prop_Send, "m_iHideHUD") | HIDE_RADAR_CSGO)
+	if(hTimer != null)
+	{
+		KillTimer(hTimer, autoClose);
+		hTimer = null;
+		return true;
+	}
+	return false;
+}
+
+void ResetWholeGame()
+{
+	g_nHidden = -1;
+	g_bRoundEnded = false;
+}
+
+void SetRound()
+{
+	PickNewHidden();
+}
+
+int PickNewHidden(int retry=0)
+{
+	//랜덤 플레이어 선택
+	int NewHidden = GetRandomPlayer(CLIENTFILTER_INGAMEAUTH | CLIENTFILTER_NOSPECTATORS | CLIENTFILTER_NOHIDDENHISTORIED);
+	
+	if(NewHidden == -1)
+	{
+		for(int i=0;i<=MaxClients;i++)
+		{
+			g_bHiddenHistoried[i] = false;
+		}
+		NewHidden = GetRandomPlayer(CLIENTFILTER_INGAMEAUTH | CLIENTFILTER_NOSPECTATORS | CLIENTFILTER_NOHIDDENHISTORIED);
+		
+		if(NewHidden == -1)
+			NewHidden = GetRandomPlayer(CLIENTFILTER_INGAMEAUTH | CLIENTFILTER_NOSPECTATORS);
+	}
+	
+	if(ConnectionCheck(NewHidden))
+	{
+		if(g_nHidden != -1)
+		{
+			SwitchHidden(g_nHidden, NewHidden);
+		}
+		else
+		{
+			CS_SwitchTeam(NewHidden, 2);
+		}
+		
+		g_nHidden = NewHidden;
+		
+		PrintToChatAll("\x05[Hidden]\x04 %N \x03님이 다음 라운드의 히든이 되셨습니다!", NewHidden);
+			
+		g_bHiddenHistoried[NewHidden] = true;
+	}
+	else
+	{
+		if(retry < 4)
+			PickNewHidden(retry+1);
+		else
+		{
+			LogError("{HIDDEN} COULDN'T PICK A HIDDEN AFTER 4 TRIED.");
+			PrintToChatAll("\x05[Hidden]\x03다음 라운드의 히든을 뽑을 수가 없습니다. 플러그인 관리자에게 문의해 주십시오.");
+		}
+	}
+	
+	return NewHidden;
+}
+
+void SwitchHidden(int oldHidden, int newHidden)
+{
+	if(ConnectionCheck(newHidden))
+		CS_SwitchTeam(newHidden, 2);
+	if(ConnectionCheck(oldHidden) && oldHidden != newHidden)	
+		CS_SwitchTeam(oldHidden, 3);
 }
 
 // 배경음악
@@ -246,21 +230,16 @@ void StartBackgroundMusic()
 {
 	int num = GetRandomInt(1, 4);
 	
-	if(num == 1)
+	switch(num)
 	{
-		EmitSoundToAllAny(bgm1, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
-	}
-	if(num == 2)
-	{
-		EmitSoundToAllAny(bgm2, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
-	}
-	if(num == 3)
-	{
-		EmitSoundToAllAny(bgm3, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
-	}
-	if(num == 4)
-	{
-		EmitSoundToAllAny(bgm4, SOUND_FROM_PLAYER, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
+		case 1:
+			EmitSoundToAllAny(bgm1, SOUND_FROM_PLAYER, SNDCHAN_STREAM, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
+		case 2:
+			EmitSoundToAllAny(bgm2, SOUND_FROM_PLAYER, SNDCHAN_STREAM, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
+		case 3:
+			EmitSoundToAllAny(bgm3, SOUND_FROM_PLAYER, SNDCHAN_STREAM, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
+		case 4:
+			EmitSoundToAllAny(bgm4, SOUND_FROM_PLAYER, SNDCHAN_STREAM, SNDLEVEL_NORMAL, SND_CHANGEVOL, 0.65, SNDPITCH_NORMAL, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
 	}
 }
 
@@ -270,23 +249,7 @@ void StopBackgroundMusic()
 	{
 		for(int x = 0; x < sizeof(sound_file_to_download); x++)
 		{
-			StopSound(i, SNDCHAN_AUTO, sound_file_to_download[x]);
+			StopSound(i, SNDCHAN_STREAM, sound_file_to_download[x]);
 		}
 	}
-}
-
-public Action Hook_HintText(UserMsg msg_id, Handle um, const int[] players, int playersNum, bool reliable, bool init)
-{
-	/* Block enemy-spotted "tutorial" messages from being shown to players. */ 
-	char message[256];
-	if(!(GetFeatureStatus(FeatureType_Native, "GetUserMessageType") == FeatureStatus_Available && GetUserMessageType() == UM_Protobuf))
-	{
-		BfReadString(um, message, sizeof(message));
-	}
-	
-	
-	if (StrContains(message, "spotted_an_enemy") != -1)
-		return Plugin_Handled;
-		
-	return Plugin_Continue;
 }
